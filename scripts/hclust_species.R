@@ -8,6 +8,10 @@ species_vectors <- species_vectors[,-1]
 dist_matrix = dist(as.matrix(species_vectors))
 
 hier_cluster_model<-hclust(dist_matrix, method="ward.D2")
+
+# SEE MERGES!
+hier_cluster_model$merge
+
 plot(hier_cluster_model)
 
 si = silhouette(cutree(hier_cluster_model,250),dist_matrix)
@@ -18,7 +22,7 @@ fviz_nbclust(as.matrix(species_vectors), hcut, method = "silhouette",
 
 avg_silhouette_widths=numeric()
 
-for (num_clusters in 2:393){
+for (num_clusters in 2:261){
   si = silhouette(cutree(hier_cluster_model, num_clusters), dist_matrix)
   avg_sil = mean(si[,3])
   print(avg_sil)
