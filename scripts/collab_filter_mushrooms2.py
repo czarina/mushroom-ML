@@ -26,7 +26,7 @@ votes_official_names = votes_official_names.drop(['name_id', 'Unnamed: 0', 'id_t
 name_info = pd.DataFrame(master.groupby(['official_name_id', 'text_name', 'rank']).groups.keys(), columns = ['name_id', 'text_name', 'rank'])
 
 #acceptable ranks
-name_info_under_genus = name_info.loc[name_info['rank'] < 9]
+name_info_under_genus = name_info.loc[(name_info['rank'] < 9) | (name_info['rank'] == 16)]
 
 
 # get votes with official names < rank genus 
@@ -72,7 +72,7 @@ for key, row in votes_master.iterrows():
 # write the votes matrix to file
 votes_matrix.to_csv(path_or_buf='votes_matrix_for_CF_0or1.csv', sep='\t')
 
-votes_matrix = pd.read_csv('votes_matrix_for_CF.csv', sep='\t')
+votes_matrix = pd.read_csv('votes_matrix_for_CF_0or1.csv', sep='\t')
 
 # create item-item matrix
 item_item = pd.DataFrame(index=votes_matrix.columns,columns=votes_matrix.columns)
@@ -88,6 +88,8 @@ for i in top_groups_name_ids :
       item_item.ix[i,j] = 1-cosine(votes_matrix.ix[:,i],votes_matrix.ix[:,j])
 
 item_item.to_csv(path_or_buf='similarity_matrix_for_CF_0_or_1.csv', sep='\t')
+item_item = pd.read_csv('similarity_matrix_for_CF_0_or_1.csv', sep='\t') 
+
 
 # now we have 126K votes
 
@@ -123,6 +125,9 @@ for key, row in item_item.iterrows():
 
 votes_df.to_csv(path_or_buf='flattened_similarity_dataframe_for_CF_0_or_1.csv', sep='\t')
 
+votes_df =pd.read_csv('flattened_similarity_dataframe_for_CF_0_or_1.csv', sep='\t')
+
+
 # 2. constructing bucket_ind_to_species_ind dict
 # initially set every species ind to a bucket ind
 bucket_to_species_dict = {}
@@ -137,7 +142,8 @@ for i in top_groups_name_ids :
 
 # NOW, start iterative process
 
-steps = 500
+steps = 50
+sim_limit = 0.025
 for i in range(steps):
 	print("MERGE-STEP: " + str(i))
 	# step 1 : sort the sim DF to find the highest similarity buckets
@@ -148,6 +154,9 @@ for i in range(steps):
 	sim = votes_df.head(1)['sim'].values.tolist()[0]
 	if(merged_into_ind == merging_ind):
 		print "ERROR!!"
+		break
+	if(sim < sim_limit):
+		print "REACHED SIM LIMIT"
 		break
 	bucket2_size = len(bucket_to_species_dict[merging_ind])
 	bucket1_size = len(bucket_to_species_dict[merged_into_ind])
@@ -176,8 +185,47 @@ for i in range(steps):
 	votes_df.ix[votes_df.bucket2==merged_into_ind, 'sim'] = votes_df.ix[votes_df.bucket2==merged_into_ind, 'bucket1'].apply(lambda x: get_cosine(x, merged_into_ind))
 	print("Step 4: Updated sim scores")
 
+bucket_names = [[name_info.loc[name_info['name_id'] == x]['text_name'].values.tolist()[0] for x in y] for y in bucket_to_species_dict.values()]
+species_sizes = pd.DataFrame({'count' : master.groupby( [ "text_name"] ).size()}).reset_index()
+buckets_with_sizes = []
+for bucket in bucket_names:
+	bucket_size = 0
+	for species in bucket:
+		#if species == 'Amanita solaniolens':
+			#print "HERRE!", bucket
+		#print species, species_sizes.loc[species_sizes['text_name'] == species]['count']
+		bucket_size += species_sizes.loc[species_sizes['text_name'] == species]['count'].values.tolist()[0]
+	buckets_with_sizes.append([bucket, bucket_size])
+buckets_with_sizes = sorted(buckets_with_sizes,key=lambda x: x[1], reverse=True)
+
+# remove 'mixed collection'
+buckets_with_sizes = [x for x in buckets_with_sizes if 'Mixed collection' not in x[0]]
+top_300_buckets = buckets_with_sizes[0:300]
 
 def get_cosine(bucket2_id, merged_into_ind):
 	return 1-cosine(votes_matrix.ix[:,merged_into_ind],votes_matrix.ix[:,bucket2_id])
 
+## DID A BUNCH OF PROCESSING IN EXCEL. LOAD IT BACK
+visual_tax = pd.read_csv('results/visual_taxonomy.txt', sep='\t')
+visual_tax['Group'] = visual_tax['Group'].apply(lambda x: x.split(','))
+visual_tax['Group'] = visual_tax['Group'].apply(lambda x: [y.replace("[", "").replace("]", "").replace("\'", "").strip(" ") for y in x])
+visual_tax['Bucket_id'] = visual_tax.index
+name_id_to_bucket_dict = {}
+name_and_bucket_df = pd.DataFrame(columns = ['name_id', 'bucket_id'])
+for index, bucket in visual_tax.iterrows():
+	for name in bucket['Group']:
+		get_name = name_info_under_genus.loc[name_info_under_genus['text_name'] == name]
+		if(len(get_name) < 1):
+			print(name +  " ERROR")
+		else:
+			to_append_name = get_name['name_id'].values.tolist()[0]
+			name_id_to_bucket_dict[to_append_name] = bucket['Bucket_id']
+			name_and_bucket_df = name_and_bucket_df.append({'name_id': to_append_name, 'bucket_id': bucket['Bucket_id']}, ignore_index=True)
+
+# 227K images here, as expected
+master_in_top_buckets = pd.merge(master, name_and_bucket_df, left_on = "official_name_id", right_on = "name_id")
+master_in_top_buckets['img_url'] = 'http://images.mushroomobserver.org/320/' +  master_in_top_buckets['image_id'].apply(lambda x: str(x)) + '.jpg'
+master_in_top_buckets.to_csv(path_or_buf='images_in_top_300_buckets_iterative_clustering_manual0.csv', sep='\t')
+## GET IMAGES FOR BUCKETS
+##
 

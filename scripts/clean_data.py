@@ -40,7 +40,7 @@ def discard_bad_images():
   merged = pd.merge(gold_and_preds_count, example_counts, left_on='gold_label', right_on='gold_label')
   merged.gold_and_pred_count = merged.gold_and_pred_count.astype(float)
   merged['perc_of_species_guessed_this_pred'] = merged['gold_and_pred_count'] / merged['num_imgs']
-  top1_common_1pt5_guesses = merged.loc[merged['perc_of_species_guessed_this_pred'] > 0.015]
+  top1_common_1pct_guesses = merged.loc[merged['perc_of_species_guessed_this_pred'] > 0.01]
 
   #(i,j) = # of examples where species j was a top5 guess for species i
   pairwise_appearance_counts = {}
@@ -55,6 +55,7 @@ def discard_bad_images():
     update_dict((row['gold_label'], row['pred5_name']))
 
   # (i,j) = % of examples where species j is a top 5 pred for species i
+  # these are the rates of appearance of every species j among top 5 preds of species i
   pairwise_appearance_rate = {}
   count = 0
   for key, count in pairwise_appearance_counts.iteritems():
@@ -63,6 +64,39 @@ def discard_bad_images():
     rate = count / num_gold_examples
     pairwise_appearance_rate[key] = rate
 
+  # if we use a 2.5% cut-off for the top 2 preds of each image, we get:
+  bad_imgs = []
+  count = 0
+  start_from = 0
+  for key, row in df.iterrows():
+    print(count)
+    count += 1
+    if count > start_from:
+      curr_gold = row['gold_label']
+      # check if this gold, 1st pred pair is rare
+      if pairwise_appearance_rate[(curr_gold, row['pred1_name'])] < 0.025 and pairwise_appearance_rate[(curr_gold, row['pred2_name'])] < 0.025:
+        # pair is bad, throw out
+          bad_imgs.append(row['img'])
+          if not os.path.exists("bad_imgs_twoptfive_perc_top_2/" + curr_gold.replace(" ", "_")):
+            os.makedirs("bad_imgs_twoptfive_perc_top_2/" + curr_gold.replace(" ", "_"))
+          cmd = 'scp -i ../mushroom2.pem ubuntu@54.215.232.58:/tf_files/' + row['img'] + ' bad_imgs_twoptfive_perc_top_2/' + curr_gold.replace(" ", "_")
+          print(str(count), cmd)
+          try:
+            result = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
+          # some examples were moved to separate dir to reduce # of training examples
+          except subprocess.CalledProcessError as e:
+            print("ERROR!", e)
+      else:
+        #store in another dir if img is good. just for sanity checking.
+          if not os.path.exists("good_imgs_twoptfive_perc_top_2/" + curr_gold.replace(" ", "_")):
+            os.makedirs("good_imgs_twoptfive_perc_top_2/" + curr_gold.replace(" ", "_"))
+          cmd = 'scp -i ../mushroom2.pem ubuntu@54.215.232.58:/tf_files/' + row['img'] + ' good_imgs_twoptfive_perc_top_2/' + curr_gold.replace(" ", "_")
+          print(str(count), cmd)
+          try:
+            result = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
+          # some examples were moved to separate dir to reduce # of training examples
+          except subprocess.CalledProcessError as e:
+            print("ERROR!", e)      
 
   # We have top 500 species among gold labels here, and a total of 200K images
   # The % of images whose 1st and 2nd preds are both <2% common among 1st preds of this species is:
@@ -78,9 +112,9 @@ def discard_bad_images():
       if is_not_row_in_df(curr_gold, row['pred1_name']) and is_not_row_in_df(curr_gold, row['pred2_name']):
         # pair is bad, throw out
           bad_imgs.append(row['img'])
-          if not os.path.exists("bad_imgs_oneptfive_perc_top_2/" + curr_gold.replace(" ", "_")):
-            os.makedirs("bad_imgs_oneptfive_perc_top_2/" + curr_gold.replace(" ", "_"))
-          cmd = 'scp -i ../mushroom2.pem ubuntu@54.215.232.58:/tf_files/' + row['img'] + ' bad_imgs_oneptfive_perc_top_2/' + curr_gold.replace(" ", "_")
+          if not os.path.exists("bad_imgs_onepct_top_2/" + curr_gold.replace(" ", "_")):
+            os.makedirs("bad_imgs_onepct_top_2/" + curr_gold.replace(" ", "_"))
+          cmd = 'scp -i ../mushroom2.pem ubuntu@54.215.232.58:/tf_files/' + row['img'] + ' bad_imgs_onepct_top_2/' + curr_gold.replace(" ", "_")
           print(str(count), cmd)
           try:
             result = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
@@ -89,9 +123,9 @@ def discard_bad_images():
             print("ERROR!", e)
       else:
         #store in another dir if img is good. just for sanity checking.
-          if not os.path.exists("good_imgs_oneptfive_perc_top_2/" + curr_gold.replace(" ", "_")):
-            os.makedirs("good_imgs_oneptfive_perc_top_2/" + curr_gold.replace(" ", "_"))
-          cmd = 'scp -i ../mushroom2.pem ubuntu@54.215.232.58:/tf_files/' + row['img'] + ' good_imgs_oneptfive_perc_top_2/' + curr_gold.replace(" ", "_")
+          if not os.path.exists("good_imgs_onepct_top_2/" + curr_gold.replace(" ", "_")):
+            os.makedirs("good_imgs_onepct_top_2/" + curr_gold.replace(" ", "_"))
+          cmd = 'scp -i ../mushroom2.pem ubuntu@54.215.232.58:/tf_files/' + row['img'] + ' good_imgs_onepct_top_2/' + curr_gold.replace(" ", "_")
           print(str(count), cmd)
           try:
             result = subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
@@ -127,7 +161,7 @@ def update_dict(pair):
     pairwise_appearance_counts[pair] = 1
 
 def is_not_row_in_df(curr_gold, curr_pred):
-  return len(top1_common_1pt5_guesses.loc[(top1_common_1pt5_guesses['gold_label']== curr_gold) & (top1_common_1pt5_guesses['pred1_name'] == curr_pred)])== 0
+  return len(top1_common_1pct_guesses.loc[(top1_common_1pct_guesses['gold_label']== curr_gold) & (top1_common_1pct_guesses['pred1_name'] == curr_pred)])== 0
 
 def get_pred_dict(combined_pred):
   return {"name": combined_pred.split(",")[0].capitalize(), "score": float(combined_pred.split(',')[1])}

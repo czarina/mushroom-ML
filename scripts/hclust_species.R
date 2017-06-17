@@ -1,5 +1,6 @@
 library(cluster)
 require(factoextra)
+require(stats)
 setwd("~/Downloads/all_mushrooms/Mushrooms/results/species_model")
 # One averaged vector per species, with average score per species
 species_vectors = read.table("species_vectors_for_clustering.csv", sep="\t", stringsAsFactors=FALSE, header=FALSE)
@@ -29,3 +30,13 @@ for (num_clusters in 2:261){
   avg_silhouette_widths <- c(avg_silhouette_widths, avg_sil)
 }
 plot(avg_silhouette_widths)
+
+-- 
+votes_matrix = read.table("votes_matrix_for_CF_0or1.csv", sep="\t", stringsAsFactors=FALSE, header=TRUE)
+votes_matrix = votes_matrix[ , -which(names(votes_matrix) %in% c("X"))]
+votes_matrix_t = t(votes_matrix)
+votes_pca <- prcomp(votes_matrix,
+                 center = TRUE,
+                 scale. = TRUE) 
+
+
